@@ -1,30 +1,283 @@
 
-***
 
-# 保险配置后台系统 – 产品需求与技术设计文档（PRD + Tech Spec）
 
-## 1. 文档信息
+## Product Lines & Plans功能页面
 
-- 文档名称：保险配置后台系统 – PRD & 技术设计文档  
-- 版本号：v1.0  
-- 作者：________  
-- 审核人：________（产品/技术/业务方）  
-- 创建日期：YYYY-MM-DD  
-- 最后更新日期：YYYY-MM-DD  
-- 审批状态：草稿 / 评审中 / 已批准  
 
-### 1.1 修订记录
+### 【页面整体布局】
+| 区域     | 位置    | 主要内容                    | 交互目的             |
+| ------ | ----- | ----------------------- | ---------------- |
+| 产品线区域  | 页面上方  | 产品线卡片列表                 | 切换当前查看的产品线       |
+| 计划列表区域 | 左侧主区域 | 当前产品线下的计划卡片、计划开关、新增计划按钮 | 选择、新增或快速查看某个计划   |
+| 计划详情区域 | 右侧主区域 | 计划基础信息、权益、附加项、等级晋级关系    | 查看和编辑当前选中计划的详细配置 |
 
-| 版本 | 日期 | 修改人 | 修改内容概述 |
-|------|------|--------|--------------|
-| v0.1 |      |        | 初稿         |
-| v1.0 |      |        | 评审后定稿   |
+### 【页面信息架构】
 
-***
+```mermaid
+flowchart TD
+    A[Products & Plans 页面] --> B[产品线卡片区域]
+    A --> C[计划列表区域]
+    A --> D[计划详情区域]
 
-## 2. 引言
+    B --> B1[产品线编码]
+    B --> B2[产品线名称]
+    B --> B3[产品线状态]
+    B --> B4[计划数量及产品类型]
 
-### 2.1 背景
+    C --> C1[新增计划按钮]
+    C --> C2[计划卡片列表]
+    C2 --> C21[等级标签]
+    C2 --> C22[计划名称]
+    C2 --> C23[保障类别]
+    C2 --> C24[基础倍率]
+    C2 --> C25[标准免赔额]
+    C2 --> C26[启停状态]
+
+    D --> D1[计划基本信息]
+    D --> D2[已包含权益]
+    D --> D3[可选附加项]
+    D --> D4[计划等级晋级关系]
+    D --> D5[编辑与删除操作]
+```
+
+### 【角色定义】
+
+| 角色    | 主要职责                         |
+| ----- | ---------------------------- |
+| 产品经理  | |
+| Viewer  | 查看可售产品与计划，查看产品与计划配置，确认保障类别、核保适用范围及可售状态     |
+| Approver  | 对已审批的配置进行发布、下架、回滚  |
+| User  | 创建产品线、维护计划结构、维护保障权益、配置产品展示信息，查看可售产品与计划，配置渠道展示或运营标签，维护基础倍率、免赔额相关配置，确认计划定价相关字段        |
+| Power Admin | 管理用户、角色、权限和基础字典           |
+| Admin | 查看产品、计划及配置变更历史     |
+
+
+### 【权限矩阵---待修改】
+| 操作       | 产品经理 | 精算人员 | 核保人员 | 运营人员 | 发布管理员 | 审计用户 |
+| -------- | ---- | ---- | ---- | ---- | ----- | ---- |
+| 查看产品线列表  | 是    | 是    | 是    | 是    | 是     | 是    |
+| 查看计划详情   | 是    | 是    | 是    | 是    | 是     | 是    |
+| 新增产品线    | 是    | 否    | 否    | 否    | 否     | 否    |
+| 新增计划     | 是    | 可选   | 否    | 否    | 否     | 否    |
+| 编辑计划基本资料 | 是    | 否    | 可选   | 否    | 否     | 否    |
+| 编辑基础倍率   | 可选   | 是    | 否    | 否    | 否     | 否    |
+| 编辑标准免赔额  | 可选   | 是    | 是    | 否    | 否     | 否    |
+| 配置已包含权益  | 是    | 否    | 是    | 可选   | 否     | 否    |
+| 配置可选附加项  | 是    | 可选   | 是    | 可选   | 否     | 否    |
+| 启用/停用计划  | 否    | 否    | 否    | 否    | 是     | 否    |
+| 查看审计记录   | 是    | 是    | 是    | 否    | 是     | 是    |
+| 发布/回滚版本  | 否    | 否    | 否    | 否    | 是     | 否    |
+
+### 【状态流转图】
+
+```mermaid
+flowchart TD
+    A[用户进入 Products & Plans 页面] --> B[加载用户有权限的产品线]
+    B --> C{是否存在可访问产品线?}
+
+    C -->|否| D[展示无权限或空状态]
+    C -->|是| E[默认选中产品线]
+    E --> F[加载该产品线的计划列表]
+
+    F --> G{该产品线是否有计划?}
+    G -->|否| H[展示空计划状态及 Add Plan 按钮]
+    G -->|是| I[默认选中第一条]
+    I --> J[加载计划详情]
+
+    J --> K{用户操作}
+    K -->|切换产品线| E
+    K -->|选择其他计划| J
+    K -->|新增计划| L[填写计划基础信息]
+    L --> M[保存为 Draft 计划]
+    M --> F
+    K -->|编辑计划| N[校验权限与计划状态]
+    N --> O{允许编辑?}
+    O -->|否| P[提示创建新版本或无权限]
+    O -->|是| Q[保存修改并记录审计日志]
+    Q --> J
+    K -->|添加权益或附加项| R[从权益库/附加项库选择]
+    R --> S[校验重复、依赖、互斥及状态]
+    S --> J
+```
+
+### 【数据库设计】
+```mermaid
+erDiagram
+    PRODUCT_LINE ||--o{ PLAN : contains
+    PLAN ||--o{ PLAN_BENEFIT : includes
+    BENEFIT_CATALOG ||--o{ PLAN_BENEFIT : assigned_to
+    PLAN ||--o{ PLAN_ADDON : offers
+    ADDON_CATALOG ||--o{ PLAN_ADDON : assigned_to
+    PLAN ||--o{ PLAN_VERSION : has
+    PRODUCT_LINE ||--o{ PRODUCT_LINE_VERSION : has
+    PLAN ||--o{ PLAN_GRADE_RELATION : follows
+    PLAN ||--o{ AUDIT_LOG : changes_logged_for
+
+    PRODUCT_LINE {
+        string product_line_id PK
+        string product_line_code UK
+        string product_line_name
+        string business_type
+        string default_currency_code
+        string status
+        int display_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    PLAN {
+        string plan_id PK
+        string product_line_id FK
+        string plan_code UK
+        string plan_name
+        string grade_code
+        int grade_order
+        string cover_category
+        decimal base_multiplier
+        decimal standard_excess
+        string currency_code
+        boolean is_enabled
+        string plan_status
+        int display_order
+        int version_no
+        datetime effective_from
+        datetime effective_to
+        datetime created_at
+        datetime updated_at
+    }
+
+    BENEFIT_CATALOG {
+        string benefit_id PK
+        string benefit_code UK
+        string benefit_name
+        string benefit_type
+        string status
+    }
+
+    PLAN_BENEFIT {
+        string plan_benefit_id PK
+        string plan_id FK
+        string benefit_id FK
+        boolean is_included
+        decimal limit_amount
+        string currency_code
+        int display_order
+        string config_json
+    }
+
+    ADDON_CATALOG {
+        string addon_id PK
+        string addon_code UK
+        string addon_name
+        string addon_type
+        string pricing_rule_code
+        string status
+    }
+
+    PLAN_ADDON {
+        string plan_addon_id PK
+        string plan_id FK
+        string addon_id FK
+        boolean is_optional
+        string pricing_rule_code
+        string dependency_config_json
+        string eligibility_rule_code
+        int display_order
+        string status
+    }
+
+    PLAN_GRADE_RELATION {
+        string relation_id PK
+        string product_line_id FK
+        string current_plan_id FK
+        string previous_plan_id FK
+        string next_plan_id FK
+        int grade_order
+        boolean upgrade_recommendable
+    }
+
+    AUDIT_LOG {
+        string audit_log_id PK
+        string object_type
+        string object_id
+        string action
+        string before_data_json
+        string after_data_json
+        string operator_id
+        datetime operated_at
+        string request_id
+    }
+```
+
+#### 【产品列表】
+| 字段名称（语义）  | 字段名词（field name）        | 类型              | 必填 | 说明                                                      | 字段约束                                              |
+| --------- | ----------------------- | --------------- | -- | ------------------------------------------------------- | ------------------------------------------------- |
+| 产品线主键     | product_line_id         | BIGINT UNSIGNED | 是  | 产品线唯一 ID                                                | 主键；自增或雪花 ID；不可修改                                  |
+| 产品线编码     | product_line_code       | VARCHAR(64)     | 是  | 系统唯一编码，例如 RT-FLEET                                      | 唯一索引；建议仅允许大写字母、数字、-、_；不可重复                        |
+| 产品线名称     | product_line_name       | VARCHAR(128)    | 是  | 产品线展示名称，例如 RoadTrust Fleet                              | 建议在同一业务域内唯一；长度 1–128                              |
+| 产品线简称     | product_line_short_name | VARCHAR(64)     | 否  | 适用于卡片、下拉框、移动端等短文本展示                                     | 长度不超过 64                                          |
+| 产品线描述     | description             | TEXT            | 否  | 对产品线适用场景、目标客户和定位的业务说明                                   | 不建议保存完整保险条款；完整条款应关联文档库                            |
+| 保险业务类型    | business_type           | VARCHAR(32)     | 是  | 如 PERSONAL、FLEET_COMMERCIAL、ELECTRIC_VEHICLE、MOTORCYCLE | 建议关联业务类型字典表                                       |
+| 险种代码      | insurance_type_code     | VARCHAR(32)     | 是  | 如机动车险可为 MOTOR_INSURANCE                                 | 建议关联险种字典表                                         |
+| 产品线图标     | icon_code               | VARCHAR(64)     | 否  | 前端卡片图标标识，如 fleet、electric_vehicle                       | 不保存图片二进制；保存图标编码或资源 URL                            |
+| 默认币种      | default_currency_code   | CHAR(3)         | 是  | 默认保费、免赔额和保额展示币种，例如 HKD、CNY                              | 应符合 ISO 4217；建议关联币种字典                             |
+| 适用地区      | region_code             | VARCHAR(32)     | 否  | 产品线默认适用地区，例如 HK、CN、APAC                                 | 建议关联地区字典；多地区场景建议另建关联表                             |
+| 产品线状态     | status                  | VARCHAR(32)     | 是  | 产品线当前生命周期状态，如 DRAFT、LIVE、SUSPENDED、RETIRED              | 默认 DRAFT；建议建立状态检查约束                               |
+| 是否启用      | is_enabled              | TINYINT(1)      | 是  | 业务开关；1=启用，0=停用                                          | 默认 0；产品线为 LIVE 时通常应为 1                            |
+| 是否允许新报价   | is_quote_enabled        | TINYINT(1)      | 是  | 是否允许报价系统读取该产品线用于新报价                                     | 默认 0；暂停销售时应为 0                                    |
+| 是否允许新投保   | is_application_enabled  | TINYINT(1)      | 是  | 是否允许新投保/新出单                                             | 默认 0；与渠道、核保规则共同决定最终可售性                            |
+| 默认计划 ID   | default_plan_id         | BIGINT UNSIGNED | 否  | 该产品线默认推荐或默认选中的计划                                        | 外键关联 plan.plan_id；计划必须属于当前产品线                     |
+| 展示排序      | display_order           | INT UNSIGNED    | 是  | 控制产品线卡片展示顺序                                             | 默认 0；建议建立普通索引                                     |
+| 当前生效版本 ID | current_version_id      | BIGINT UNSIGNED | 否  | 指向当前已发布的产品线版本                                           | 外键关联 product_line_version.product_line_version_id |
+| 生效开始时间    | effective_from          | DATETIME        | 否  | 当前产品线配置开始生效时间                                           | 小于 effective_to；统一采用业务时区                          |
+| 生效结束时间    | effective_to            | DATETIME        | 否  | 产品线配置失效时间；为空表示长期有效                                      | 必须大于 effective_from                               |
+| 创建人 ID    | created_by              | BIGINT UNSIGNED | 是  | 创建该产品线的后台用户 ID                                          | 外键关联用户表                                           |
+| 创建时间      | created_at              | DATETIME        | 是  | 记录创建时间                                                  | 默认 CURRENT_TIMESTAMP                              |
+| 更新人 ID    | updated_by              | BIGINT UNSIGNED | 是  | 最后修改该产品线的用户 ID                                          | 外键关联用户表                                           |
+| 更新时间      | updated_at              | DATETIME        | 是  | 最后修改时间                                                  | 默认自动更新                                            |
+| 行版本号      | row_version             | INT UNSIGNED    | 是  | 乐观锁字段，防止多人编辑覆盖                                          | 默认 1；每次更新加 1                                      |
+| 是否删除      | is_deleted              | TINYINT(1)      | 是  | 软删除标识                                                   | 默认 0；普通查询必须过滤 0                                   |
+| 删除时间      | deleted_at              | DATETIME        | 否  | 执行软删除的时间                                                | 仅 is_deleted=1 时有值                                |
+| 删除人 ID    | deleted_by              | BIGINT UNSIGNED | 否  | 执行软删除的用户 ID                                             | 仅 is_deleted=1 时有值                                |                 |
+
+### 【异常与边界场景】
+
+| 场景               | 系统处理                                |
+| ---------------- | ----------------------------------- |
+| 产品线不存在           | 返回 404，并展示“该产品线不存在或已被删除”            |
+| 计划不存在            | 返回 404，并清空右侧旧详情，避免展示错误数据            |
+| 用户没有查看权限         | 返回 403，不返回任何产品或计划敏感数据               |
+| 用户无编辑权限          | 编辑、删除、Add 等操作按钮隐藏或禁用；后端仍返回 403 防止绕过 |
+| 当前计划已发布          | 核心配置字段只读；编辑操作引导用户创建新版本              |
+| 基础倍率为 0、负数或格式非法  | 阻止保存，显示字段级校验错误                      |
+| 免赔额小于 0          | 阻止保存，提示必须大于等于 0                     |
+| 计划名称重复           | 阻止保存，指出冲突计划名称及其所属产品线                |
+| 计划编码重复           | 阻止保存，指出编码已存在                        |
+| 产品线没有计划          | 左侧显示空状态；右侧不显示上一次计划数据                |
+| 产品线计划超过单页数量      | 支持滚动加载或分页，并保持当前选中计划状态               |
+| 两名用户并发编辑         | 后提交用户收到版本冲突提示，要求刷新后重新编辑             |
+| 计划被报价/保单引用       | 禁止物理删除；只能停用、下架或创建替代版本               |
+| 添加权益/附加项重复       | 阻止保存，并提示重复对象名称                      |
+| Add-on 存在互斥/依赖关系 | 保存前进行校验，返回具体冲突或缺失依赖项                |
+| 已发布计划被紧急停用       | 需要二次确认、填写原因、写审计日志，并触发缓存失效/变更通知      |
+| 后端接口超时或失败        | 前端展示可重试错误提示；不得保留“保存成功”的假状态          |
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -420,3 +673,7 @@
 如果你希望，我可以下一步帮你：  
 - 按你公司具体险种（例如只做健康险/车险）精简一版“可直接用”的 PRD 文案；  
 - 或者针对某个模块（如“费率配置”或“核保规则配置”）写出更详细的字段级需求和接口示例。
+
+
+
+
