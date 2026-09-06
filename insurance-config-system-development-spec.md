@@ -36,7 +36,7 @@ RoadTrust 整体产品由驾驶数据 App 和保险公司合作伙伴后台组�
 
 ### 1.2 本期目标
 
-- 在 Overview 中集中呈现客户、App 使用、驾驶评分、车辆、保单、保费、理赔和待审批事项。
+- 在 Overview 中集中呈现客户、App 使用、驾驶评分、车辆、保单、保费和理赔数据。
 - 在 Clients 中查询已授权同步至保险公司的客户信息、驾驶分数、车辆及保险计划。
 - 在 Vehicles 中查询车辆、车主或使用人、遥测在线状态、风险分数、里程和承保状态。
 - 在 Products & Plans 中配置产品线、计划层级、保障、附加项、倍数和免赔额，并通过 Maker–Approver 流程发布至 App。
@@ -44,7 +44,7 @@ RoadTrust 整体产品由驾驶数据 App 和保险公司合作伙伴后台组�
 
 ### 1.3 本期不包含
 
-侧栏中的 Claims、Policies、Quote Engine、Alerts、Tariff Setup、Make & Model、Pricing Setup、Excess Rules、Users & Roles、Document Library 及 IT & Implementation 仅在菜单结构和关联关系中说明，本文件不展开其完整开发设计。Overview、Client 或 Vehicle 中跳转至这些模块时，目标模块应另行编写开发文档。
+侧栏中的 Claims、Policies、Quote Engine、Alerts、Tariff Setup、Make & Model、Pricing Setup、Excess Rules、Users & Roles、Document Library 及 IT & Implementation 仅在菜单结构和关联关系中说明，本文件不展开其完整开发设计。Client 或 Vehicle 中跳转至这些模块时，目标模块应另行编写开发文档。
 
 ## 2. 后台菜单结构
 
@@ -124,18 +124,32 @@ Figma 原型采用固定侧栏、顶部栏、系统状态条和可滚动内容�
 
 ```mermaid
 flowchart LR
-    APP["RoadTrust App"] -->|"客户、车辆、行程与驾驶评分事件"| INGEST["数据接入与校验"]
-    CORE["保险公司核心保单/理赔系统"] -->|"保单、承保、理赔事件"| INGEST
-    INGEST --> OPDB["运营查询库"]
-    OPDB --> AGG["Overview 每日聚合任务"]
-    AGG --> CACHE["仪表盘缓存/快照"]
-    CONSOLE["保险配置后台"] -->|"只读查询"| OPDB
-    CONSOLE -->|"产品配置与审批"| CONFIG["产品配置服务"]
-    CONFIG -->|"已发布版本"| CHANNEL["App 报价/投保渠道"]
-    APP -->|"报价/投保请求"| CHANNEL
-    CHANNEL -->|"可售产品、Plan、报价及投保结果"| APP
+    CONSOLE["保险配置后台（Web）"] -->|"配置、审批并发布产品"| CONFIG["产品配置服务"]
+    CONFIG -->|"已发布产品、Plan 及报价规则"| CHANNEL["App 报价/投保服务"]
+    APP["RoadTrust App"] -->|"报价请求"| CHANNEL
+    CHANNEL -->|"可售产品、Plan 及报价结果"| APP
+    APP -->|"用户下单数据：客户、车辆、所选产品及投保资料"| ORDER["保险配置后台订单服务"]
+    ORDER -->|"投保订单及承保所需数据"| CORE["保险公司核心系统"]
+    CORE -->|"承保状态、保单及理赔结果"| ORDER
+    ORDER -->|"投保状态及保单结果"| APP
+    APP -->|"客户、车辆、行程与驾驶评分事件"| INGEST["数据接入与校验"]
+    ORDER -->|"订单、保单及承保数据"| INGEST
+    INGEST --> OPDB["实时运营数据库"]
+    CONSOLE -->|"Overview 查询请求"| OVERVIEW["Overview 查询服务"]
+    OVERVIEW -->|"实时读取并计算汇总"| OPDB
+    CONSOLE -->|"Clients、Vehicles、订单与保单查询"| OPDB
     CONFIG --> AUDIT["审计日志"]
+    ORDER --> AUDIT
 ```
+
+#### 链路说明
+
+1. 保险公司人员在保险配置后台完成产品、Plan 和报价规则的配置、审批与发布。
+2. 已发布配置通过 App 报价/投保服务提供给 RoadTrust App，App 据此展示可售产品并完成报价。
+3. 用户在 App 确认投保后，客户、车辆、所选产品和投保资料先传入保险配置后台订单服务。
+4. 保险配置后台完成基础校验和数据整理后，将投保订单及承保所需数据传给保险公司的核心系统。
+5. 核心系统返回承保状态、保单及后续理赔结果；保险配置后台保存并同步结果，App 展示投保状态和保单信息。
+6. App 驾驶数据和后台订单、保单数据实时写入运营数据库；进入 Overview 或修改筛选条件时，Overview 查询服务直接读取当前已提交数据并计算结果。
 
 ## 4. 角色定义与统一权限模型
 
@@ -184,14 +198,14 @@ Overview 是登录后的默认页面，为保险公司提供本租户经营、�
 
 | 区域 | 位置 | 内容 | 主要交互 |
 |---|---|---|---|
-| 页面标题与筛选 | 内容区顶部 | Overview、统计周期、产品线、区域、最后更新时间 | 切换筛选、恢复默认条件 |
+| 页面标题与筛选 | 内容区顶部 | Overview、统计周期、产品线、区域、本次查询时间 | 切换筛选、恢复默认条件；每次变更筛选后重新查询 |
 | KPI 卡片 | 第一行 | App 客户数、30 日活跃客户数、在保车辆数、有效保单数、平均驾驶分、签单保费、未结理赔 | 仅展示，无点击交互 |
 | 保费趋势 | 中部左侧 | Written Premium 与 Earned Premium 月度折线 | 切换时间粒度、悬浮查看数值 |
 | 理赔趋势 | 中部右侧 | Filed、Settled、Denied 月度柱状或组合图 | 图例开关、悬浮查看数值 |
 | 保障组合 | 下部左侧 | Comprehensive、Third Party、TP Fire & Theft、Fleet 等占比 | 仅展示，无点击交互 |
 | 驾驶风险分布 | 下部中部 | 低、中、高、严重风险客户/车辆分布 | 仅展示，无点击交互 |
 
-窄屏下 KPI 改为两列或单列，图表纵向排列；表格改为可横向滚动的卡片列表，但必须保留指标标签和单位。
+窄屏下 KPI 改为两列或单列，图表纵向排列，并保留指标标签和单位。
 
 ### 5.3 页面信息架构
 
@@ -216,17 +230,19 @@ flowchart TD
 
 ### 5.4 指标口径
 
-| 指标 | 口径 | 刷新频率 |
-|---|---|---|
-| App 客户数 | 当前租户中成功绑定 App 账号且未注销的去重客户数 | 每日 1 次 |
-| 30 日活跃客户数 | 最近 30 个自然日内至少登录或上传一段有效行程的去重客户数 | 每日 1 次 |
-| 在保车辆数 | 当前时刻至少关联一张 `IN_FORCE` 保单的去重车辆数 | 每日 1 次 |
-| 有效保单数 | 当前时刻状态为 `IN_FORCE` 且在生效区间内的保单数 | 每日 1 次 |
-| 平均驾驶分 | 具备有效最新评分客户的 `overall_score` 算术平均；无评分客户不进入分母 | 每日 1 次 |
-| 签单保费 | 所选周期内已签发保单的 written premium，按页面基准币种折算 | 每日 1 次 |
-| 未结理赔 | `FILED/UNDER_REVIEW/APPROVED/IN_LITIGATION` 状态理赔数 | 每日 1 次 |
-| Cover Mix | 有效保单按 cover category 统计；默认按保单数占比 | 每日 1 次 |
-| 风险分布 | 最新 vehicle risk score：0–39 低、40–59 中、60–79 高、80–100 严重 | 每日 1 次 |
+所有指标在用户进入 Overview 或修改统计周期、产品线、区域等筛选条件时，通过查询服务读取数据库当前已提交的数据并实时计算。页面停留期间不自动轮询；下一次进入页面、修改筛选条件或错误重试时重新查询。
+
+| 指标 | 口径 |
+|---|---|
+| App 客户数 | 当前租户中成功绑定 App 账号且未注销的去重客户数 |
+| 30 日活跃客户数 | 以本次查询时间为基准，最近 30 个自然日内至少登录或上传一段有效行程的去重客户数 |
+| 在保车辆数 | 本次查询时至少关联一张 `IN_FORCE` 保单的去重车辆数 |
+| 有效保单数 | 本次查询时状态为 `IN_FORCE` 且处于生效区间内的保单数 |
+| 平均驾驶分 | 具备有效最新评分客户的 `overall_score` 算术平均；无评分客户不进入分母 |
+| 签单保费 | 所选周期内已签发保单的 written premium，按页面基准币种折算 |
+| 未结理赔 | 本次查询时处于 `FILED/UNDER_REVIEW/APPROVED/IN_LITIGATION` 状态的理赔数 |
+| Cover Mix | 本次查询时有效保单按 cover category 统计；默认按保单数占比 |
+| 风险分布 | 每辆车取本次查询时最新有效的 vehicle risk score：0–39 低、40–59 中、60–79 高、80–100 严重 |
 
 若租户存在多币种，页面必须显示基准币种和汇率日期；无法取得有效汇率的数据不得静默加入总额。
 
@@ -246,43 +262,45 @@ Overview 无业务写状态，以下为页面数据加载与降级状态：
 ```mermaid
 stateDiagram-v2
     [*] --> Loading
-    Loading --> Ready: 全部数据源成功
+    Loading --> Ready: 全部实时查询成功
     Loading --> Partial: 部分卡片或图表失败
-    Loading --> Failed: 核心汇总接口失败
-    Ready --> Refreshing: 每日定时任务开始
-    Partial --> Refreshing: 下一次每日定时任务开始
-    Failed --> Loading: 重新加载页面（不触发数据重算）
-    Refreshing --> Ready: 全部数据刷新成功
-    Refreshing --> Partial: 部分数据刷新失败
-    Refreshing --> Failed: 核心数据刷新失败
-    Ready --> Stale: 超过当日约定刷新时点仍无新快照
-    Partial --> Stale: 快照继续老化
-    Stale --> Refreshing: 下一次每日定时任务开始
+    Loading --> Failed: 核心查询失败
+    Ready --> Loading: 修改筛选条件
+    Partial --> Loading: 修改筛选条件或重试
+    Failed --> Loading: 重新进入页面或重试
 ```
 
 #### 状态说明
 
 | 状态 | 含义 | 页面表现 |
 |---|---|---|
-| `Loading` | 用户进入或重新加载 Overview，页面正在读取最新的数据快照 | 显示数据加载占位界面 |
-| `Ready` | 所有 KPI 和图表数据均已成功加载，并且数据处于有效期内 | 正常显示完整页面 |
+| `Loading` | 用户进入 Overview、修改筛选条件或重试时，页面正在通过查询服务读取实时业务数据 | 显示数据加载占位界面；筛选切换时保留现有布局 |
+| `Ready` | 所有 KPI 和图表的实时查询均成功 | 正常显示完整页面和本次查询时间 |
 | `Partial` | 页面可以使用，但部分卡片或图表加载失败 | 成功部分正常显示；失败部分显示错误提示，不能用 `0` 代替 |
-| `Failed` | Overview 核心接口失败，页面主要数据无法显示 | 显示加载失败和重新加载页面提示 |
-| `Refreshing` | 后台正在执行每天一次的数据统计任务 | 用户不能手动触发；页面继续显示上一次成功的数据 |
-| `Stale` | 已超过当天约定的更新时间，但系统尚未生成新的数据快照 | 继续展示旧数据，同时显示数据截至时间和延迟提示 |
+| `Failed` | Overview 核心查询失败，页面主要数据无法显示 | 显示加载失败和重试提示 |
 
-页面进入 `Partial` 或 `Stale` 时必须在对应卡片显示错误原因或“数据截至时间”，不得用 0 替代未知数据。用户刷新浏览器或重新进入页面时只读取最近一次快照，不触发 Overview 数据重新计算。
+页面进入 `Partial` 时必须在对应卡片显示错误原因，不得用 0 代替未知数据。页面停留期间不自动轮询；数据库发生变化后，用户下一次进入页面、修改筛选条件或重试时才能看到新结果。
 
 ### 5.7 数据库设计
 
-Overview 使用可重建的聚合快照，业务事实仍以 Client、Vehicle、Policy、Claim 和 Product 数据为准。
+Overview 不创建指标、趋势或分布快照表。查询服务在每次页面请求时，直接读取 Client、Vehicle、Policy、Driving Score、Vehicle Risk 和 Claim 等业务表的当前已提交数据，并按照第 5.4 节口径实时计算结果。
+
+为避免同一次请求中的多个 KPI 因并发写入而采用不同时间点的数据，后端应在同一数据库一致性读取范围内完成该次查询，并返回统一的本次查询时间。数据库索引、只读视图或查询优化可以用于提升性能，但不得把每日批处理快照作为 Overview 的数据来源。
 
 ```mermaid
 erDiagram
-    INSURER_TENANT ||--o{ DASHBOARD_METRIC_SNAPSHOT : owns
-    INSURER_TENANT ||--o{ DASHBOARD_SERIES_POINT : owns
-    INSURER_TENANT ||--o{ DASHBOARD_BREAKDOWN_SNAPSHOT : owns
-    INSURER_TENANT ||--o{ OPERATIONAL_ALERT : owns
+    INSURER_TENANT ||--o{ CLIENT : owns
+    INSURER_TENANT ||--o{ VEHICLE : owns
+    INSURER_TENANT ||--o{ INSURANCE_POLICY : owns
+    INSURER_TENANT ||--o{ CLAIM : owns
+    CLIENT ||--o| CLIENT_APP_ACCOUNT : binds
+    CLIENT ||--o{ DRIVING_SCORE_SNAPSHOT : receives
+    CLIENT ||--o{ INSURANCE_POLICY : holds
+    INSURANCE_POLICY ||--o{ POLICY_VEHICLE : covers
+    VEHICLE ||--o{ POLICY_VEHICLE : covered_by
+    VEHICLE ||--o{ VEHICLE_RISK_SNAPSHOT : receives
+    INSURANCE_POLICY ||--o{ CLAIM : has
+    VEHICLE ||--o{ CLAIM : involves
 
     INSURER_TENANT {
         uuid tenant_id PK
@@ -292,44 +310,70 @@ erDiagram
         char base_currency_code
         varchar status
     }
-    DASHBOARD_METRIC_SNAPSHOT {
-        uuid snapshot_id PK
+    CLIENT {
+        uuid client_id PK
         uuid tenant_id FK
-        datetime period_start
-        datetime period_end
-        varchar metric_key
-        decimal metric_value
-        char currency_code
-        datetime calculated_at
-    }
-    DASHBOARD_SERIES_POINT {
-        uuid series_point_id PK
-        uuid tenant_id FK
-        varchar series_key
-        varchar granularity
-        date period_start
-        decimal metric_value
-        char currency_code
-        datetime calculated_at
-    }
-    DASHBOARD_BREAKDOWN_SNAPSHOT {
-        uuid breakdown_id PK
-        uuid tenant_id FK
-        varchar dimension_key
-        varchar dimension_value
-        bigint item_count
-        decimal item_percentage
-        datetime snapshot_at
-    }
-    OPERATIONAL_ALERT {
-        uuid alert_id PK
-        uuid tenant_id FK
-        varchar category
-        varchar severity
-        varchar subject_type
-        uuid subject_id
+        varchar client_no UK
+        varchar client_type
         varchar status
-        datetime created_at
+    }
+    CLIENT_APP_ACCOUNT {
+        uuid app_account_id PK
+        uuid client_id FK
+        varchar app_status
+        datetime last_active_at
+    }
+    DRIVING_SCORE_SNAPSHOT {
+        uuid score_snapshot_id PK
+        uuid client_id FK
+        date score_date
+        decimal overall_score
+        boolean is_valid
+    }
+    VEHICLE {
+        uuid vehicle_id PK
+        uuid tenant_id FK
+        varchar registration_no
+        varchar status
+    }
+    VEHICLE_RISK_SNAPSHOT {
+        uuid risk_snapshot_id PK
+        uuid vehicle_id FK
+        date score_date
+        decimal risk_score
+        varchar risk_band
+    }
+    INSURANCE_POLICY {
+        uuid policy_id PK
+        uuid tenant_id FK
+        uuid client_id FK
+        uuid product_line_id FK
+        uuid plan_id FK
+        varchar status
+        decimal annual_premium
+        char currency_code
+        date effective_date
+        date expiry_date
+    }
+    POLICY_VEHICLE {
+        uuid policy_vehicle_id PK
+        uuid policy_id FK
+        uuid vehicle_id FK
+        varchar cover_category
+        varchar status
+    }
+    CLAIM {
+        uuid claim_id PK
+        uuid tenant_id FK
+        uuid policy_id FK
+        uuid vehicle_id FK
+        varchar claim_no UK
+        varchar status
+        decimal incurred_amount
+        char currency_code
+        datetime filed_at
+        datetime settled_at
+        datetime source_updated_at
     }
 ```
 
@@ -347,95 +391,59 @@ erDiagram
 | created_at | DATETIME | 是 |  | UTC 创建时间 |
 | updated_at | DATETIME | 是 |  | UTC 更新时间 |
 
-#### 5.7.2 `dashboard_metric_snapshot` 数据字典
+#### 5.7.2 实时查询数据来源
+
+| Overview 数据 | 直接读取的业务表 | 实时查询规则 |
+|---|---|---|
+| App 客户数、30 日活跃客户数 | `client`、`client_app_account` | 按当前租户、账号状态和本次查询时间筛选并去重 |
+| 在保车辆数、有效保单数、Cover Mix、签单保费 | `insurance_policy`、`policy_vehicle`、`vehicle` | 按本次查询时间判断保单生效区间及状态，并按产品线、区域等条件汇总 |
+| 平均驾驶分 | `driving_score_snapshot` | 每个客户只取本次查询时最新且有效的评分记录后计算平均值 |
+| 驾驶风险分布 | `vehicle_risk_snapshot` | 每辆车只取本次查询时最新有效风险记录，再按风险等级汇总 |
+| 未结理赔和理赔趋势 | `claim` | 按理赔状态、发生时间和所选统计周期实时统计 |
+
+`client`、`client_app_account`、`driving_score_snapshot` 和 `insurance_policy` 的数据字典见第 6 章；`vehicle`、`policy_vehicle` 和 `vehicle_risk_snapshot` 的数据字典见第 7 章。Overview 不复制这些业务数据。
+
+#### 5.7.3 `claim` 数据字典
 
 | 字段 | 类型 | 必填 | 约束/索引 | 说明 |
 |---|---|---:|---|---|
-| snapshot_id | UUID | 是 | PK | 指标快照 ID |
-| tenant_id | UUID | 是 | FK；索引 | 租户 ID |
-| period_start | DATETIME | 是 | 联合索引 | 统计起点 |
-| period_end | DATETIME | 是 | 联合索引 | 统计终点 |
-| product_line_id | UUID | 否 | 索引 | 空表示全部产品线 |
-| region_code | VARCHAR(32) | 否 | 索引 | 空表示全部区域 |
-| metric_key | VARCHAR(64) | 是 | UK 组成列 | 如 `ACTIVE_APP_CLIENTS`、`INSURED_VEHICLES` |
-| metric_value | DECIMAL(20,4) | 是 |  | 指标值 |
-| currency_code | CHAR(3) | 否 | ISO 4217 | 金额指标必填，数量指标为空 |
-| source_watermark | VARCHAR(128) | 否 |  | 源数据处理水位 |
-| calculated_at | DATETIME | 是 | 索引 | 计算完成时间 |
+| claim_id | UUID | 是 | PK | 理赔记录 ID |
+| tenant_id | UUID | 是 | FK；索引 | 所属保险公司租户 ID |
+| policy_id | UUID | 是 | FK；索引 | 关联保单 ID |
+| vehicle_id | UUID | 否 | FK；索引 | 关联车辆 ID；非车辆级理赔时可为空 |
+| claim_no | VARCHAR(64) | 是 | UK(`tenant_id`,`claim_no`) | 租户内唯一理赔编号 |
+| status | VARCHAR(24) | 是 | 索引 | `FILED/UNDER_REVIEW/APPROVED/SETTLED/DENIED/IN_LITIGATION/CLOSED` |
+| incurred_amount | DECIMAL(18,2) | 否 | ≥ 0 | 当前已发生理赔金额 |
+| currency_code | CHAR(3) | 否 | ISO 4217 | 理赔金额币种 |
+| filed_at | DATETIME | 是 | 索引 | 报案时间，UTC |
+| settled_at | DATETIME | 否 | 索引 | 结案或赔付完成时间，UTC |
+| source_updated_at | DATETIME | 是 | 索引 | 核心理赔系统最后更新时间，UTC |
 
-唯一约束：`tenant_id + period_start + period_end + product_line_id + region_code + metric_key`。
-
-#### 5.7.3 `dashboard_series_point` 数据字典
-
-| 字段 | 类型 | 必填 | 约束/索引 | 说明 |
-|---|---|---:|---|---|
-| series_point_id | UUID | 是 | PK | 趋势点 ID |
-| tenant_id | UUID | 是 | FK；索引 | 租户 ID |
-| series_key | VARCHAR(64) | 是 | 联合索引 | `WRITTEN_PREMIUM/EARNED_PREMIUM/CLAIMS_FILED/CLAIMS_SETTLED/CLAIMS_DENIED` |
-| granularity | VARCHAR(16) | 是 | `DAY/WEEK/MONTH/QUARTER` | 聚合粒度 |
-| period_start | DATE | 是 | 联合索引 | 数据点周期起点 |
-| product_line_id | UUID | 否 | 索引 | 产品线过滤维度 |
-| region_code | VARCHAR(32) | 否 |  | 区域维度 |
-| metric_value | DECIMAL(20,4) | 是 |  | 数量或金额 |
-| currency_code | CHAR(3) | 否 |  | 金额序列币种 |
-| calculated_at | DATETIME | 是 |  | 计算时间 |
-
-#### 5.7.4 `dashboard_breakdown_snapshot` 数据字典
-
-| 字段 | 类型 | 必填 | 约束/索引 | 说明 |
-|---|---|---:|---|---|
-| breakdown_id | UUID | 是 | PK | 分布快照 ID |
-| tenant_id | UUID | 是 | FK；索引 | 租户 ID |
-| dimension_key | VARCHAR(64) | 是 | 联合索引 | `COVER_CATEGORY/RISK_BAND/APP_STATUS` |
-| dimension_value | VARCHAR(64) | 是 | 联合索引 | 具体类别值 |
-| product_line_id | UUID | 否 |  | 可选产品线维度 |
-| item_count | BIGINT | 是 | ≥ 0 | 对象数量 |
-| item_percentage | DECIMAL(7,4) | 是 | 0–100 | 百分比 |
-| snapshot_at | DATETIME | 是 | 索引 | 快照时刻 |
-| calculated_at | DATETIME | 是 |  | 计算完成时间 |
-
-#### 5.7.5 `operational_alert` 数据字典
-
-| 字段 | 类型 | 必填 | 约束/索引 | 说明 |
-|---|---|---:|---|---|
-| alert_id | UUID | 是 | PK | 告警 ID |
-| tenant_id | UUID | 是 | FK；索引 | 租户 ID |
-| category | VARCHAR(32) | 是 | 索引 | `RISK/RENEWAL/FRAUD/TELEMATICS/COMPLIANCE/APPROVAL/SYSTEM` |
-| severity | VARCHAR(16) | 是 | 索引 | `INFO/WARNING/HIGH/CRITICAL` |
-| title | VARCHAR(256) | 是 |  | 告警标题 |
-| message | TEXT | 是 |  | 告警内容；不得保存不必要的明文 PII |
-| subject_type | VARCHAR(32) | 否 |  | `CLIENT/VEHICLE/POLICY/CLAIM/PRODUCT_VERSION` |
-| subject_id | UUID | 否 | 索引 | 关联对象 ID |
-| status | VARCHAR(16) | 是 | 索引 | `UNREAD/READ/RESOLVED/DISMISSED` |
-| due_at | DATETIME | 否 |  | 到期时间 |
-| created_at | DATETIME | 是 | 索引 | 创建时间 |
-| read_by | UUID | 否 |  | 首次读取人 |
-| read_at | DATETIME | 否 |  | 首次读取时间 |
-| resolved_by | UUID | 否 |  | 处理人 |
-| resolved_at | DATETIME | 否 |  | 处理时间 |
+`claim` 是保险公司核心理赔系统在本后台数据库中的实时只读投影。Overview 只查询该表，不在本页面创建或修改理赔记录。
 
 ### 5.8 异常与边界场景
 
 | 场景 | 系统处理 |
 |---|---|
 | 新租户暂无数据 | 显示引导型空状态和数据接入状态，不显示全为 0 的“正常经营”假象 |
-| 某数据源同步延迟 | 其他模块继续展示；失败模块标记 `Partial`，显示具体 `data_as_of` |
+| 上游数据尚未写入实时数据库 | 已写入的数据正常展示；页面显示各数据源的最近同步时间，不把尚未到达的数据计算为 0 |
 | 统计周期无数据 | 图表展示空坐标和“该周期暂无数据”，KPI 显示 `—` 或 0 取决于指标语义 |
 | 多币种缺少汇率 | 排除无法换算金额并显示警告、受影响记录数和汇率日期 |
 | 用户无金额权限 | 隐藏金额卡片及相关图表；接口不返回金额字段 |
-| 每日定时任务未按时完成 | 继续展示最近一次成功快照和数据截至时间，并显示数据延迟提示；用户不能手动触发重算 |
+| 实时汇总查询超时 | 已成功返回的卡片或图表继续展示，超时部分进入 `Partial` 并允许单独重试 |
 | 直接访问无权限目标页面 | 后端返回 403，不返回目标页面数据 |
-| 聚合值与明细短时不一致 | 显示各自数据时间；不得通过前端临时修改 KPI |
+| 查询期间业务数据发生变化 | 同一次 Overview 请求使用统一的一致性读取时间；变更数据在下一次查询时体现 |
 | 超大统计周期 | 服务端限制最大范围；自动切换月/季度粒度或提示缩小范围 |
 
 ### 5.9 验收要点
 
 - 同一指标在不同筛选条件下的统计口径一致。
-- Overview 每日定时刷新一次；页面重新加载只读取最新快照，不触发数据重算。
+- 进入 Overview、修改筛选条件或错误重试时重新查询数据库当前已提交数据；页面停留期间不自动轮询。
+- 同一次查询返回的 KPI、趋势和分布使用统一查询时间，不因并发写入产生相互矛盾的结果。
 - 任一租户请求均不能返回其他租户的聚合或明细。
 - 部分接口失败时，成功模块仍可使用且错误信息可定位。
 - 图表具备文本标题、数值 Tooltip 和非颜色唯一编码，满足键盘与屏幕阅读器基本可访问性。
-- 默认时间范围下，Overview 接口缓存命中时 P95 不高于 1 秒。
+- 默认统计范围下，Overview 实时查询 P95 不高于 2 秒。
 
 ## 6. Clients 开发设计
 
@@ -449,7 +457,7 @@ Clients 用于保险公司查看已通过 App、投保或保险公司核心系�
 
 | 区域 | 位置 | 内容 | 主要交互 |
 |---|---|---|---|
-| 标题区 | 顶部 | Clients、客户总数、数据更新时间 | 刷新、按权限导出 |
+| 标题区 | 顶部 | Clients、客户总数、本次查询时间 | 按权限导出 |
 | 概览卡片 | 标题下方 | 总客户、App 已注册、30 日活跃、拥有在保车辆、无驾驶评分客户 | 点击卡片写入对应筛选条件 |
 | 查询与筛选 | 表格上方 | 关键字、客户类型、App 状态、风险等级、保单状态、产品线 | 组合筛选、清空 |
 | 客户表格 | 主区域 | 客户、类型、联系方式、App 状态、驾驶分、车辆数、有效保单、当前计划、最近活跃、状态 | 排序、分页、选择客户进入详情 |
@@ -716,7 +724,7 @@ erDiagram
 | 导出数据量过大 | 创建异步任务；限制最大时间范围和行数；文件加密并自动过期 |
 | 客户已合并 | 旧 ID 返回主客户引用；UI 提示并跳转；关联车辆和保单不得丢失 |
 | 联系方式为空 | 显示 `—`，不得填充测试值或复用其他客户信息 |
-| 列表与详情更新时间不同 | 分别显示 `data_as_of`，支持刷新，不以客户端缓存覆盖新数据 |
+| 列表与详情查询时间不同 | 进入详情时重新查询当前数据，并分别显示本次查询时间；不得用列表页客户端缓存覆盖详情数据 |
 
 ### 6.10 验收要点
 
@@ -738,7 +746,7 @@ Vehicles 用于保险公司集中查看已与本租户客户或保单建立关�
 
 | 区域 | 位置 | 内容 | 主要交互 |
 |---|---|---|---|
-| 标题区 | 顶部 | Vehicles、车辆总数、最近同步时间 | 刷新、按权限导出 |
+| 标题区 | 顶部 | Vehicles、车辆总数、本次查询时间 | 按权限导出 |
 | 概览卡片 | 标题下方 | 在保车辆、遥测 Active、遥测 Stale/Inactive、高/严重风险车辆 | 点击卡片应用筛选 |
 | 搜索与筛选 | 表格上方 | 车牌/品牌/型号/客户搜索、承保状态、Cover、Telematics、风险等级、品牌、年份 | 组合筛选、清空 |
 | 车辆表格 | 主区域 | 原型字段及保单/Plan 摘要 | 排序、分页、按权限跳转 Client 或 Policy |
@@ -1014,7 +1022,7 @@ erDiagram
 | 无设备绑定 | Telematics 显示 Unbound；Last Seen 为 `—` |
 | 设备状态 Active 但数据超时 | 页面计算为 Stale，同时保留源状态并产生遥测告警 |
 | 风险样本不足 | Risk Score 显示 `—` 和 Insufficient data，不默认归入 Low |
-| 里程倒退或异常跳变 | 保留上一可信值；标记数据质量异常；不更新 Overview 汇总 |
+| 里程倒退或异常跳变 | 保留上一可信值；标记数据质量异常；该异常值不纳入 Overview 汇总 |
 | 同一车辆出现多张生效期重叠的有效保单 | 视为数据质量冲突，不选择其中一张展示；保留最近一次可信数据并进入异常处理流程 |
 | Fleet 保单大量车辆 | 使用服务端分页和批量查询，禁止 N+1 查询 |
 | 车主关系时间重叠 | 数据入库拒绝第二个主被保险人，记录冲突事件 |
@@ -1619,7 +1627,7 @@ erDiagram
 | 行程与驾驶评分 | 遥测及评分服务 | 保存日级/窗口级快照，不允许人工修改 |
 | 车辆与设备状态 | App / 车辆及设备服务 | 只读同步和数据质量告警 |
 | 保单与承保状态 | 保险公司核心保单系统 | 只读投影；保留出单时产品版本引用 |
-| 理赔数据 | 保险公司理赔系统 | Overview 只读聚合及跳转 |
+| 理赔数据 | 保险公司理赔系统 | 实时写入只读投影，Overview 按当前已提交数据查询汇总 |
 | 产品配置草稿、审批和发布 | 本后台产品配置服务 | 权威写入、版本化、审计并发布给 App |
 
 ### 9.2 API 通用响应
@@ -1632,12 +1640,12 @@ erDiagram
   "data": {},
   "meta": {
     "tenant_id": "uuid",
-    "data_as_of": "2026-09-03T08:00:00Z"
+    "queried_at": "2026-09-03T08:00:00Z"
   }
 }
 ```
 
-分页响应的 `meta` 增加 `page`、`page_size`、`total`、`sort`。异步导出或刷新返回 `job_id`、`status` 和状态查询地址。
+分页响应的 `meta` 增加 `page`、`page_size`、`total`、`sort`。异步导出或其他长任务返回 `job_id`、`status` 和状态查询地址。
 
 错误响应应包含稳定错误码，不得只返回自然语言：
 
@@ -1663,7 +1671,7 @@ erDiagram
 | 409 | `DUPLICATE_CODE`、`DRAFT_ALREADY_EXISTS`、`STATE_CONFLICT` | 唯一性或业务状态冲突 |
 | 412 | `VERSION_CONFLICT` | ETag/row version 已过期 |
 | 422 | `VALIDATION_FAILED`、`DEPENDENCY_CYCLE` | 业务字段或关系校验失败 |
-| 429 | `RATE_LIMITED` | 刷新、导出或高频查询超限 |
+| 429 | `RATE_LIMITED` | 导出或高频查询超限 |
 | 500 | `INTERNAL_ERROR` | 未分类服务端错误 |
 | 503 | `UPSTREAM_UNAVAILABLE` | App、核心保单或遥测源暂不可用 |
 
@@ -1674,14 +1682,14 @@ erDiagram
 - 同一对象按源版本号处理乱序事件；旧版本事件保留接收日志但不覆盖新数据。
 - 无法解析、跨租户、字段非法或引用缺失的事件进入死信/数据质量队列并告警。
 - 产品发布通过 Outbox 产生 `product.version.published`、`product.line.suspended` 等事件；App 配置缓存按版本键更新。
-- 所有页面返回 `data_as_of` 或 `last_synced_at`，让用户区分“没有数据”和“数据尚未同步”。
+- 所有查询返回统一的 `queried_at`；读取上游同步数据的页面同时返回 `last_synced_at`，让用户区分“没有数据”和“数据尚未同步”。
 
 ### 9.5 查询与索引原则
 
 - 所有业务表的首个过滤条件必须包含 `tenant_id`；推荐数据库行级安全或仓储层强制租户条件。
 - 高频列表索引至少覆盖：`tenant_id + status`、`tenant_id + updated_at` 及各页面主筛选字段。
 - 名称模糊搜索使用单独搜索索引或受控前缀索引；不得对加密 PII 执行全表扫描。
-- Overview 查询聚合快照，Clients 和 Vehicles 查询最新投影，Products & Plans 查询指定不可变版本。
+- Overview 查询服务直接读取当前已提交的业务数据并实时汇总；可以使用数据库索引和只读视图优化查询，但不读取每日聚合快照。Clients 和 Vehicles 查询最新投影，Products & Plans 查询指定不可变版本。
 - 软删除数据默认排除；审计、历史保单和已发布版本继续保留引用。
 
 ## 10. 安全、隐私与审计要求
@@ -1719,7 +1727,7 @@ erDiagram
 
 | 场景 | 目标 |
 |---|---|
-| Overview 首屏 | 缓存命中 P95 ≤ 1 秒；首屏接口失败不阻塞侧栏和头部 |
+| Overview 首屏 | 默认统计范围实时查询 P95 ≤ 2 秒；首屏查询失败不阻塞侧栏和头部 |
 | Clients / Vehicles 列表 | 默认筛选 P95 ≤ 500 ms，单页最多 100 条 |
 | Client Detail | P95 ≤ 800 ms；趋势数据可并行延迟加载 |
 | Product 详情读取 | P95 ≤ 800 ms |
@@ -1731,7 +1739,7 @@ erDiagram
 
 - 后台月度可用性目标不低于 99.9%，计划内维护除外。
 - 产品发布必须保证旧 Live 版本在新版本完整可用前继续服务。
-- Overview 允许最终一致；产品版本状态和当前发布指针要求强一致。
+- Overview 每次请求读取数据库当前已提交数据；同一次请求内使用统一的一致性读取时间。App、核心保单和理赔系统写入本后台前的同步延迟需通过 `last_synced_at` 明确提示。
 - 上游中断时 Clients/Vehicles 展示最近成功快照和陈旧提示，不清空已有数据。
 - 异步任务可重试、可查询、可告警，重试不得破坏幂等性。
 
@@ -1763,7 +1771,7 @@ erDiagram
 
 | 模块 | 必测场景 |
 |---|---|
-| Overview | 指标口径、时间筛选、产品线筛选、部分失败、陈旧数据、多币种 |
+| Overview | 指标口径、实时查询、时间筛选、产品线筛选、查询一致性、部分失败、多币种 |
 | Clients | 组合搜索、分页返回、详情、无评分、多车辆/保单、Corporate、PII 临时授权、合并客户 |
 | Vehicles | 车牌标准化、临时车辆、多客户、单车单有效保单约束、设备状态、Stale 计算、风险分和异常里程 |
 | Products & Plans | 草稿唯一性、版本差异、Benefit/Add-on 校验、依赖循环、并发编辑、职责分离、发布失败与重试 |
@@ -1797,7 +1805,7 @@ erDiagram
 8. 产品采用不可变发布快照；Live 版本修改必须创建新草稿。
 9. 同一产品线同一时刻仅允许一个普通编辑草稿。
 10. 历史保单永久引用出单时的产品和 Plan 版本，不随新版本变化。
-11. Overview 通过可重建聚合快照提供性能与降级能力，业务明细仍以领域数据为准。
+11. Overview 不保存专用聚合快照；进入页面、修改筛选条件或错误重试时，通过查询服务读取数据库当前已提交的业务数据并实时计算，页面停留期间不自动轮询。
 12. 所有生产数据以租户隔离、最小权限、默认脱敏和全量审计为基础约束。
 
 ## 14. 开发交付物建议
@@ -1806,7 +1814,7 @@ erDiagram
 - 数据库迁移脚本、索引和约束验证脚本；
 - 产品配置 JSON Schema 与发布前校验规则集；
 - RBAC 权限种子数据和五类角色默认权限模板；
-- Overview 指标口径 SQL/任务定义及数据质量监控；
+- Overview 实时指标查询 SQL、索引与执行计划，以及数据质量和慢查询监控；
 - App、客户/车辆、保单、遥测和产品发布事件 Schema；
 - 前端 Storybook/组件状态样例，包括 Loading、Empty、Partial、Error、Forbidden 和 Read-only；
 - Maker–Approver 端到端自动化测试及发布回滚演练记录。
